@@ -1,0 +1,60 @@
+name: Auto Update Packages
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 每天 UTC 02:00 執行（約香港時間 10:00）
+  workflow_dispatch:      # 允許手動觸發
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get latest Argon release
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = await github.rest.repos.getLatestRelease({
+              owner: 'jerrykuku',
+              repo: 'luci-theme-argon'
+            });
+            core.setOutput('tag', repo.data.tag_name);
+            core.setOutput('url', repo.data.html_url);
+            console.log('Latest tag:', repo.data.tag_name);
+
+      - name: Download APK assets
+        run: |
+          mkdir -p packages/apk
+          cd packages/apk
+          
+          # 下載最新 release 的所有 .apk 檔案
+          gh release download ${{ steps.release.outputs.tag }} \
+            --repo jerrykuku/luci-theme-argon \
+            --pattern "*.apk" \
+            --clobber
+          
+          ls -la
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add packages/apk/
+          
+          if git diff --staged --quiet; then
+            echo "No changes detected."
+          else
+            git commit -m "chore: update Argon packages to ${{ steps.release.outputs.tag }}"
+            git push
+          fi
